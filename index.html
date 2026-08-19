@@ -1170,6 +1170,127 @@
       }
     }
 
+
+    .table-week-nav {
+      display: inline-grid;
+      grid-template-columns: 34px minmax(150px, 1fr) 34px;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 7px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      min-height: 42px;
+    }
+
+    .table-week-nav button {
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border-radius: 8px;
+      background: var(--button-muted);
+      color: var(--text);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .table-week-nav button:hover:not(:disabled) {
+      background: var(--button-muted-hover);
+    }
+
+    .table-week-nav button:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+
+    .table-week-nav-label {
+      min-width: 0;
+      text-align: center;
+      font-size: .8rem;
+      font-weight: 800;
+      white-space: nowrap;
+      padding: 0 4px;
+    }
+
+    .table-week-nav.current-week {
+      background: var(--current-bg);
+      border-color: var(--current-border);
+    }
+
+    .table-week-nav.current-week .table-week-nav-label {
+      color: var(--current-text);
+    }
+
+    .compact-tools {
+      align-items: center;
+    }
+
+    .compact-tools .table-week-picker {
+      display: none;
+    }
+
+    @media (max-width: 760px) {
+      .table-week-nav {
+        width: 100%;
+        grid-template-columns: 38px 1fr 38px;
+      }
+
+      .compact-tools {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .compact-tools .table-week-nav {
+        grid-column: 1 / -1;
+      }
+    }
+
+
+    body {
+      padding-top: 0;
+    }
+
+    .container {
+      padding-top: 0;
+    }
+
+    .topbar {
+      margin-top: 0;
+    }
+
+    @media (max-width: 760px) {
+      .container {
+        padding-top: 0;
+      }
+
+      .topbar {
+        margin-top: 0;
+      }
+    }
+
+
+    .container {
+      padding-top: 22px;
+    }
+
+    .topbar {
+      margin-top: -22px;
+    }
+
+    @media (max-width: 760px) {
+      .container {
+        padding-top: 14px;
+      }
+
+      .topbar {
+        margin-top: -14px;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -1199,15 +1320,15 @@
         </div>
       </div>
       <div class="header-actions">
-        <button type="button" class="header-action" id="exportBtn">
+        <button type="button" class="header-action" id="exportAllBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 14v5h14v-5"/></svg>
-          Export CSV
+          Export All
         </button>
-        <button type="button" class="header-action" id="importBtn">
+        <button type="button" class="header-action" id="importAllBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15V3m0 0 4 4m-4-4-4 4"/><path d="M5 10v9h14v-9"/></svg>
-          Import CSV
+          Import All
         </button>
-        <input class="file-input" id="importFile" type="file" accept=".csv,text/csv" />
+        <input class="file-input" id="importAllFile" type="file" accept=".csv,text/csv" />
         <div class="header-divider"></div>
         <div class="theme-control">
           <span class="theme-control-label" id="themeLabel">Light</span>
@@ -1341,11 +1462,18 @@
           </div>
         </div>
         <div class="compact-tools">
-          <div>
-            
+          <div class="table-week-picker">
             <input id="weekPicker" type="date" />
           </div>
+          <div class="table-week-nav" id="tableWeekNav">
+            <button type="button" id="tablePrevWeekBtn" aria-label="Previous week" title="Previous week">&#8249;</button>
+            <div class="table-week-nav-label" id="tableWeekLabel">-</div>
+            <button type="button" id="tableNextWeekBtn" aria-label="Next week" title="Next week">&#8250;</button>
+          </div>
           <button type="button" class="btn-secondary" id="thisWeekBtn">This week</button>
+          <button type="button" class="btn-secondary" id="exportWeekBtn">Export week</button>
+          <button type="button" class="btn-secondary" id="importWeekBtn">Import week</button>
+          <input class="file-input" id="importWeekFile" type="file" accept=".csv,text/csv" />
           <button type="button" class="btn-danger" id="clearWeekBtn">Clear selected week</button>
         </div>
       </div>
@@ -1394,6 +1522,9 @@
     const weekLabel = document.getElementById("weekLabel");
     const selectedWeekCard = document.getElementById("selectedWeekCard");
     const nextWeekBtn = document.getElementById("nextWeekBtn");
+    const tableWeekNav = document.getElementById("tableWeekNav");
+    const tableWeekLabel = document.getElementById("tableWeekLabel");
+    const tableNextWeekBtn = document.getElementById("tableNextWeekBtn");
     const status = document.getElementById("status");
     const taskChart = document.getElementById("taskChart");
     const dashboardGrid = document.querySelector(".dashboard-grid");
@@ -1401,7 +1532,8 @@
     const chartExpandLabel = document.getElementById("chartExpandLabel");
     const chartExpandIcon = document.getElementById("chartExpandIcon");
     let chartExpanded = false;
-    const importFile = document.getElementById("importFile");
+    const importAllFile = document.getElementById("importAllFile");
+    const importWeekFile = document.getElementById("importWeekFile");
     const themeToggle = document.getElementById("themeToggle");
 
     function applyTheme(theme) {
@@ -1617,6 +1749,12 @@
       selectedWeekCard.classList.toggle("current-week", isCurrentWeek);
       nextWeekBtn.disabled = isCurrentWeek;
 
+      tableWeekLabel.textContent =
+        `${start.toLocaleDateString(undefined, {day:"2-digit", month:"short"})} - ` +
+        `${end.toLocaleDateString(undefined, {day:"2-digit", month:"short"})}`;
+      tableWeekNav.classList.toggle("current-week", isCurrentWeek);
+      tableNextWeekBtn.disabled = isCurrentWeek;
+
       const total = weekEntries.reduce((sum, e) => sum + Number(e.hours), 0);
       const daysWithEntries = new Set(weekEntries.map(e => e.date)).size;
       totalHours.textContent = total.toFixed(2);
@@ -1785,13 +1923,6 @@
     chartExpandBtn.addEventListener("click", () => {
       chartExpanded = !chartExpanded;
       updateChartExpansion();
-
-      if (chartExpanded) {
-        document.getElementById("projectChartCard").scrollIntoView({
-          behavior: "smooth",
-          block: "start"
-        });
-      }
     });
 
     function appendDayTotalRow(date, total) {
@@ -1979,6 +2110,14 @@
       moveSelectedWeek(1);
     });
 
+    document.getElementById("tablePrevWeekBtn").addEventListener("click", () => {
+      moveSelectedWeek(-1);
+    });
+
+    document.getElementById("tableNextWeekBtn").addEventListener("click", () => {
+      moveSelectedWeek(1);
+    });
+
     weekPicker.addEventListener("change", () => {
       if (weekPicker.value > today) {
         weekPicker.value = today;
@@ -2006,7 +2145,7 @@
       render();
     });
 
-    document.getElementById("exportBtn").addEventListener("click", () => {
+    document.getElementById("exportWeekBtn").addEventListener("click", () => {
       const weekEntries = selectedWeekEntries();
 
       if (!weekEntries.length) {
@@ -2016,7 +2155,7 @@
 
       const reference = parseLocalDate(weekPicker.value || today);
       const start = startOfWeek(reference);
-      const filename = `timesheet-${toDateInputValue(start)}.csv`;
+      const filename = `tock-week-${toDateInputValue(start)}.csv`;
 
       const rows = [["Date", "Project / Task", "Type", "Description", "Hours"]];
       weekEntries.forEach(e => rows.push([e.date, e.task, e.category || "", e.description || "", Number(e.hours).toFixed(2)]));
@@ -2039,13 +2178,13 @@
       URL.revokeObjectURL(url);
     });
 
-    document.getElementById("importBtn").addEventListener("click", () => {
-      importFile.value = "";
-      importFile.click();
+    document.getElementById("importWeekBtn").addEventListener("click", () => {
+      importWeekFile.value = "";
+      importWeekFile.click();
     });
 
-    importFile.addEventListener("change", async () => {
-      const file = importFile.files && importFile.files[0];
+    importWeekFile.addEventListener("change", async () => {
+      const file = importWeekFile.files && importWeekFile.files[0];
       if (!file) return;
 
       try {
@@ -2133,6 +2272,155 @@
         render();
 
         status.textContent = `Imported ${imported} entr${imported === 1 ? "y" : "ies"}${skipped ? `; skipped ${skipped}` : ""}.`;
+        setTimeout(() => status.textContent = "", 3000);
+      } catch (error) {
+        console.error(error);
+        alert("The CSV file could not be imported.");
+      }
+    });
+
+
+    document.getElementById("exportAllBtn").addEventListener("click", () => {
+      if (!entries.length) {
+        alert("There is no timesheet data to export.");
+        return;
+      }
+
+      const sortedEntries = [...entries].sort((a, b) =>
+        a.date.localeCompare(b.date) || a.createdAt - b.createdAt
+      );
+
+      const rows = [["Date", "Project / Task", "Type", "Description", "Hours"]];
+      sortedEntries.forEach(entry => {
+        rows.push([
+          entry.date,
+          entry.task,
+          entry.category || "",
+          entry.description || "",
+          Number(entry.hours).toFixed(2)
+        ]);
+      });
+
+      rows.push([]);
+      rows.push([
+        "All Data Total",
+        "",
+        "",
+        "",
+        sortedEntries.reduce((sum, entry) => sum + Number(entry.hours), 0).toFixed(2)
+      ]);
+
+      const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tock-all-data-${today}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("importAllBtn").addEventListener("click", () => {
+      importAllFile.value = "";
+      importAllFile.click();
+    });
+
+    importAllFile.addEventListener("change", async () => {
+      const file = importAllFile.files && importAllFile.files[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const rows = parseCsv(text);
+
+        if (!rows.length) {
+          alert("The CSV file is empty.");
+          return;
+        }
+
+        const headerIndex = rows.findIndex(row => {
+          const normalized = row.map(cell => String(cell).trim().toLowerCase());
+          return normalized.length >= 3 &&
+            normalized[0] === "date" &&
+            normalized[1].includes("project") &&
+            normalized.includes("hours");
+        });
+
+        if (headerIndex === -1) {
+          alert('Could not find the expected timesheet columns.');
+          return;
+        }
+
+        const header = rows[headerIndex].map(cell => String(cell).trim().toLowerCase());
+        const typeIndex = header.indexOf("type");
+        const descriptionIndex = header.indexOf("description");
+        const hoursIndex = header.indexOf("hours");
+        const allowedCategories = ["PROD", "UAT", "SUPPORT", "AGILE", "BAU", "DEV", "TIME-OFF"];
+
+        let imported = 0;
+        let skipped = 0;
+
+        for (const row of rows.slice(headerIndex + 1)) {
+          if (!row.length || row.every(cell => !String(cell).trim())) continue;
+
+          const date = String(row[0] ?? "").trim();
+          const task = String(row[1] ?? "").trim();
+
+          if (
+            date.toLowerCase() === "weekly total" ||
+            date.toLowerCase() === "all data total"
+          ) {
+            continue;
+          }
+
+          const category = typeIndex >= 0
+            ? String(row[typeIndex] ?? "").trim().toUpperCase()
+            : "";
+          const description = descriptionIndex >= 0
+            ? String(row[descriptionIndex] ?? "").trim().slice(0, 500)
+            : "";
+          const hours = Number(String(row[hoursIndex] ?? "").trim());
+
+          const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+            !Number.isNaN(parseLocalDate(date).getTime()) &&
+            date <= today;
+          const validCategory = !category || allowedCategories.includes(category);
+          const validHours = Number.isFinite(hours) &&
+            hours > 0 &&
+            hours <= 24 &&
+            Math.abs(hours * 4 - Math.round(hours * 4)) <= 0.000001;
+
+          if (!validDate || !task || !validCategory || !validHours) {
+            skipped++;
+            continue;
+          }
+
+          entries.push({
+            id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+            date,
+            task,
+            category,
+            description,
+            hours,
+            createdAt: Date.now() + imported
+          });
+
+          imported++;
+        }
+
+        if (!imported) {
+          alert(`No valid entries were imported.${skipped ? ` ${skipped} row(s) were skipped.` : ""}`);
+          return;
+        }
+
+        saveEntries();
+        render();
+
+        status.textContent =
+          `Imported ${imported} entr${imported === 1 ? "y" : "ies"}` +
+          `${skipped ? `; skipped ${skipped}` : ""}.`;
         setTimeout(() => status.textContent = "", 3000);
       } catch (error) {
         console.error(error);
