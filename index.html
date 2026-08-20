@@ -1330,7 +1330,7 @@
         </button>
         <button type="button" class="header-action" id="pdfReportBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/><path d="M8.5 16.5h7M8.5 13h7M8.5 9.5h3"/></svg>
-          PDF Report (Current Week)
+          PDF Report
         </button>
         <input class="file-input" id="importAllFile" type="file" accept=".csv,text/csv" />
         <div class="header-divider"></div>
@@ -2433,9 +2433,10 @@
     });
 
 
-    function reportCurrentWeekEntries() {
-      const start = startOfWeek(parseLocalDate(today));
-      const end = endOfWeek(parseLocalDate(today));
+    function reportSelectedWeekEntries() {
+      const reference = parseLocalDate(weekPicker.value || today);
+      const start = startOfWeek(reference);
+      const end = endOfWeek(reference);
 
       return entries
         .filter(entry => {
@@ -2506,9 +2507,10 @@
     }
 
     function createWeeklyPdfReport() {
-      const weekEntries = reportCurrentWeekEntries();
-      const weekStart = startOfWeek(parseLocalDate(today));
-      const weekEnd = endOfWeek(parseLocalDate(today));
+      const reportReference = parseLocalDate(weekPicker.value || today);
+      const weekEntries = reportSelectedWeekEntries();
+      const weekStart = startOfWeek(reportReference);
+      const weekEnd = endOfWeek(reportReference);
       const total = weekEntries.reduce((sum, entry) => sum + Number(entry.hours), 0);
       const daysWithEntries = new Set(weekEntries.map(entry => entry.date)).size;
       const dailyAverage = daysWithEntries ? total / daysWithEntries : 0;
@@ -2606,7 +2608,7 @@
 
       if (!projectData.length) {
         rect(M, y, CONTENT_W, 42, soft, border);
-        addText("No time entries have been captured for the current week.", M + 12, y + 25, 9, "F1", muted);
+        addText("No time entries have been captured for the selected week.", M + 12, y + 25, 9, "F1", muted);
         y += 60;
       } else {
         const topProjects = projectData.slice(0, 8);
@@ -2638,7 +2640,7 @@
         pageHeader(false);
       }
 
-      addText("CURRENT WEEK ENTRIES", M, y, 10.5, "F2", text);
+      addText("SELECTED WEEK ENTRIES", M, y, 10.5, "F2", text);
       y += 17;
 
       const columns = {
@@ -2661,7 +2663,7 @@
 
       if (!weekEntries.length) {
         rect(M, y, CONTENT_W, 36, null, border);
-        addText("No entries for the current week.", M + 8, y + 22, 9, "F1", muted);
+        addText("No entries for the selected week.", M + 8, y + 22, 9, "F1", muted);
         y += 36;
       } else {
         for (const entry of weekEntries) {
@@ -2674,7 +2676,7 @@
           if (y + rowH > PAGE_H - M - 28) {
             newPage();
             pageHeader(false);
-            addText("CURRENT WEEK ENTRIES (CONTINUED)", M, y, 9.5, "F2", text);
+            addText("SELECTED WEEK ENTRIES (CONTINUED)", M, y, 9.5, "F2", text);
             y += 16;
             tableHeader();
           }
