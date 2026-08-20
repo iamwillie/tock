@@ -1328,6 +1328,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15V3m0 0 4 4m-4-4-4 4"/><path d="M5 10v9h14v-9"/></svg>
           Import All
         </button>
+        <button type="button" class="header-action" id="pdfReportBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/><path d="M8.5 16.5h7M8.5 13h7M8.5 9.5h3"/></svg>
+          PDF Report (Current Week)
+        </button>
         <input class="file-input" id="importAllFile" type="file" accept=".csv,text/csv" />
         <div class="header-divider"></div>
         <div class="theme-control">
@@ -2427,6 +2431,336 @@
         alert("The CSV file could not be imported.");
       }
     });
+
+
+    function reportCurrentWeekEntries() {
+      const start = startOfWeek(parseLocalDate(today));
+      const end = endOfWeek(parseLocalDate(today));
+
+      return entries
+        .filter(entry => {
+          const d = parseLocalDate(entry.date);
+          return d >= start && d <= end;
+        })
+        .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+    }
+
+    function pdfAscii(value) {
+      return String(value ?? "")
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\x20-\x7E]/g, "?");
+    }
+
+    function pdfEscape(value) {
+      return pdfAscii(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/\(/g, "\\(")
+        .replace(/\)/g, "\\)");
+    }
+
+    function pdfTextWidth(text, size) {
+      // Approximation for Helvetica. Good enough for truncation/layout.
+      return pdfAscii(text).length * size * 0.51;
+    }
+
+    function truncatePdfText(text, maxWidth, size) {
+      const clean = pdfAscii(text);
+      if (pdfTextWidth(clean, size) <= maxWidth) return clean;
+      let out = clean;
+      while (out.length > 1 && pdfTextWidth(out + "...", size) > maxWidth) {
+        out = out.slice(0, -1);
+      }
+      return out + "...";
+    }
+
+    function wrapPdfText(text, maxWidth, size, maxLines = 3) {
+      const words = pdfAscii(text).split(/\s+/).filter(Boolean);
+      if (!words.length) return [""];
+
+      const lines = [];
+      let line = "";
+
+      for (const word of words) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (pdfTextWidth(candidate, size) <= maxWidth) {
+          line = candidate;
+        } else {
+          if (line) lines.push(line);
+          line = word;
+          if (lines.length >= maxLines) break;
+        }
+      }
+
+      if (line && lines.length < maxLines) lines.push(line);
+
+      if (words.join(" ") !== lines.join(" ") && lines.length) {
+        lines[lines.length - 1] = truncatePdfText(lines[lines.length - 1], maxWidth - 8, size);
+      }
+
+      return lines.slice(0, maxLines);
+    }
+
+    function pdfColor(r, g, b) {
+      return `${(r / 255).toFixed(3)} ${(g / 255).toFixed(3)} ${(b / 255).toFixed(3)}`;
+    }
+
+    function createWeeklyPdfReport() {
+      const weekEntries = reportCurrentWeekEntries();
+      const weekStart = startOfWeek(parseLocalDate(today));
+      const weekEnd = endOfWeek(parseLocalDate(today));
+      const total = weekEntries.reduce((sum, entry) => sum + Number(entry.hours), 0);
+      const daysWithEntries = new Set(weekEntries.map(entry => entry.date)).size;
+      const dailyAverage = daysWithEntries ? total / daysWithEntries : 0;
+      const projects = new Map();
+
+      weekEntries.forEach(entry => {
+        const key = entry.task.trim();
+        projects.set(key, (projects.get(key) || 0) + Number(entry.hours));
+      });
+
+      const projectData = [...projects.entries()]
+        .map(([task, hours]) => ({ task, hours }))
+        .sort((a, b) => b.hours - a.hours || a.task.localeCompare(b.task));
+
+      const PAGE_W = 595.28;
+      const PAGE_H = 841.89;
+      const M = 42;
+      const CONTENT_W = PAGE_W - (M * 2);
+      const accent = pdfColor(37, 99, 235);
+      const text = pdfColor(24, 24, 27);
+      const muted = pdfColor(113, 113, 122);
+      const border = pdfColor(228, 228, 231);
+      const soft = pdfColor(248, 250, 252);
+      const green = pdfColor(4, 120, 87);
+
+      const pages = [];
+      let ops = [];
+      let y = PAGE_H - M;
+
+      function yPdf(topY) {
+        return PAGE_H - topY;
+      }
+
+      function addText(value, x, top, size = 10, font = "F1", color = text) {
+        ops.push(`${color} rg`);
+        ops.push(`BT /${font} ${size} Tf ${x.toFixed(2)} ${yPdf(top).toFixed(2)} Td (${pdfEscape(value)}) Tj ET`);
+      }
+
+      function line(x1, top1, x2, top2, color = border, width = 1) {
+        ops.push(`${color} RG ${width} w ${x1.toFixed(2)} ${yPdf(top1).toFixed(2)} m ${x2.toFixed(2)} ${yPdf(top2).toFixed(2)} l S`);
+      }
+
+      function rect(x, top, w, h, fill, stroke = null, radius = 0) {
+        // PDF core has no rounded rectangle operator. Use crisp minimal rectangles.
+        if (fill) ops.push(`${fill} rg`);
+        if (stroke) ops.push(`${stroke} RG 0.8 w`);
+        ops.push(`${x.toFixed(2)} ${(PAGE_H - top - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re ${fill && stroke ? "B" : fill ? "f" : "S"}`);
+      }
+
+      function newPage() {
+        if (ops.length) pages.push(ops.join("\n"));
+        ops = [];
+        y = M;
+      }
+
+      function pageHeader(isFirst = false) {
+        if (!isFirst) {
+          addText("Tock", M, 31, 12, "F2", accent);
+          addText("Weekly Report", M + 34, 31, 9, "F1", muted);
+          addText(`${weekStart.toLocaleDateString(undefined, {day:"2-digit", month:"short"})} - ${weekEnd.toLocaleDateString(undefined, {day:"2-digit", month:"short", year:"numeric"})}`, PAGE_W - M - 132, 31, 8.5, "F1", muted);
+          line(M, 42, PAGE_W - M, 42);
+          y = 62;
+        }
+      }
+
+      // First page header.
+      addText("TOCK", M, 55, 11, "F2", accent);
+      addText("WEEKLY REPORT", M, 81, 22, "F2", text);
+      addText(`${weekStart.toLocaleDateString(undefined, {weekday:"short", day:"2-digit", month:"short"})} - ${weekEnd.toLocaleDateString(undefined, {weekday:"short", day:"2-digit", month:"short", year:"numeric"})}`, M, 103, 10, "F1", muted);
+      addText(`Generated ${new Date().toLocaleDateString(undefined, {day:"2-digit", month:"short", year:"numeric"})}`, PAGE_W - M - 112, 103, 8.5, "F1", muted);
+      line(M, 119, PAGE_W - M, 119, border, 1);
+      y = 141;
+
+      // Summary metrics.
+      const gap = 10;
+      const cardW = (CONTENT_W - (gap * 3)) / 4;
+      const cards = [
+        ["TOTAL HOURS", total.toFixed(2), accent],
+        ["DAILY AVERAGE", dailyAverage.toFixed(2), green],
+        ["ENTRIES", String(weekEntries.length), text],
+        ["PROJECTS", String(projectData.length), text]
+      ];
+
+      cards.forEach((card, index) => {
+        const x = M + index * (cardW + gap);
+        rect(x, y, cardW, 66, soft, border);
+        addText(card[0], x + 11, y + 20, 7.5, "F2", muted);
+        addText(card[1], x + 11, y + 47, 17, "F2", card[2]);
+      });
+      y += 91;
+
+      // Project breakdown.
+      addText("TIME BY PROJECT / TASK", M, y, 10.5, "F2", text);
+      y += 18;
+
+      if (!projectData.length) {
+        rect(M, y, CONTENT_W, 42, soft, border);
+        addText("No time entries have been captured for the current week.", M + 12, y + 25, 9, "F1", muted);
+        y += 60;
+      } else {
+        const topProjects = projectData.slice(0, 8);
+        const maxHours = Math.max(...topProjects.map(item => item.hours), 1);
+        const labelW = 158;
+        const valueW = 48;
+        const barW = CONTENT_W - labelW - valueW - 18;
+
+        topProjects.forEach(item => {
+          const barX = M + labelW;
+          const width = Math.max((item.hours / maxHours) * barW, 2);
+          addText(truncatePdfText(item.task, labelW - 10, 8.5), M, y + 11, 8.5, "F1", text);
+          rect(barX, y + 2, barW, 10, soft, null);
+          rect(barX, y + 2, width, 10, accent, null);
+          addText(`${item.hours.toFixed(2)}h`, PAGE_W - M - valueW + 8, y + 11, 8.5, "F2", text);
+          y += 22;
+        });
+
+        if (projectData.length > topProjects.length) {
+          addText(`+ ${projectData.length - topProjects.length} more project/task${projectData.length - topProjects.length === 1 ? "" : "s"}`, M, y + 4, 8, "F1", muted);
+          y += 14;
+        }
+        y += 12;
+      }
+
+      // Detailed entries heading.
+      if (y > PAGE_H - 170) {
+        newPage();
+        pageHeader(false);
+      }
+
+      addText("CURRENT WEEK ENTRIES", M, y, 10.5, "F2", text);
+      y += 17;
+
+      const columns = {
+        date: { x: M, w: 76 },
+        project: { x: M + 76, w: 125 },
+        work: { x: M + 201, w: CONTENT_W - 201 - 52 },
+        hours: { x: PAGE_W - M - 52, w: 52 }
+      };
+
+      function tableHeader() {
+        rect(M, y, CONTENT_W, 25, soft, border);
+        addText("DATE", columns.date.x + 7, y + 16, 7.2, "F2", muted);
+        addText("PROJECT / TASK", columns.project.x + 7, y + 16, 7.2, "F2", muted);
+        addText("TYPE / DESCRIPTION", columns.work.x + 7, y + 16, 7.2, "F2", muted);
+        addText("HOURS", columns.hours.x + 7, y + 16, 7.2, "F2", muted);
+        y += 25;
+      }
+
+      tableHeader();
+
+      if (!weekEntries.length) {
+        rect(M, y, CONTENT_W, 36, null, border);
+        addText("No entries for the current week.", M + 8, y + 22, 9, "F1", muted);
+        y += 36;
+      } else {
+        for (const entry of weekEntries) {
+          const workText = `${entry.category ? `[${entry.category}] ` : ""}${entry.description || ""}`.trim();
+          const projectLines = wrapPdfText(entry.task, columns.project.w - 14, 8, 2);
+          const workLines = wrapPdfText(workText || "-", columns.work.w - 14, 8, 3);
+          const linesNeeded = Math.max(projectLines.length, workLines.length, 1);
+          const rowH = Math.max(31, 14 + linesNeeded * 11);
+
+          if (y + rowH > PAGE_H - M - 28) {
+            newPage();
+            pageHeader(false);
+            addText("CURRENT WEEK ENTRIES (CONTINUED)", M, y, 9.5, "F2", text);
+            y += 16;
+            tableHeader();
+          }
+
+          rect(M, y, CONTENT_W, rowH, null, border);
+          addText(parseLocalDate(entry.date).toLocaleDateString(undefined, {day:"2-digit", month:"short", year:"2-digit"}), columns.date.x + 7, y + 19, 8, "F1", text);
+
+          projectLines.forEach((lineText, i) => {
+            addText(lineText, columns.project.x + 7, y + 18 + (i * 11), 8, i === 0 ? "F2" : "F1", text);
+          });
+
+          workLines.forEach((lineText, i) => {
+            addText(lineText, columns.work.x + 7, y + 18 + (i * 11), 8, "F1", i === 0 && entry.category ? text : muted);
+          });
+
+          addText(Number(entry.hours).toFixed(2), columns.hours.x + 11, y + 19, 8.5, "F2", text);
+          y += rowH;
+        }
+      }
+
+      // Footer on final page.
+      y += 16;
+      line(M, y, PAGE_W - M, y, border, 0.8);
+      addText("Generated locally by Tock. No timesheet data was sent to a server.", M, y + 18, 7.5, "F1", muted);
+
+      if (ops.length) pages.push(ops.join("\n"));
+
+      const pdfBytes = buildSimplePdf(pages, PAGE_W, PAGE_H);
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tock-weekly-report-${toDateInputValue(weekStart)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function buildSimplePdf(pageStreams, pageWidth, pageHeight) {
+      const objects = [];
+      const addObject = body => {
+        objects.push(body);
+        return objects.length;
+      };
+
+      const fontRegular = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+      const fontBold = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+      const pagesObjectIndex = objects.length + 1;
+      addObject("");
+
+      const pageRefs = [];
+
+      pageStreams.forEach(stream => {
+        const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+        const pageId = addObject(
+          `<< /Type /Page /Parent ${pagesObjectIndex} 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] ` +
+          `/Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >> >> /Contents ${contentId} 0 R >>`
+        );
+        pageRefs.push(pageId);
+      });
+
+      objects[pagesObjectIndex - 1] = `<< /Type /Pages /Kids [${pageRefs.map(id => `${id} 0 R`).join(" ")}] /Count ${pageRefs.length} >>`;
+      const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesObjectIndex} 0 R >>`);
+
+      let pdf = "%PDF-1.4\n%Tock\n";
+      const offsets = [0];
+
+      objects.forEach((body, index) => {
+        offsets[index + 1] = pdf.length;
+        pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+      });
+
+      const xrefOffset = pdf.length;
+      pdf += `xref\n0 ${objects.length + 1}\n`;
+      pdf += "0000000000 65535 f \n";
+      for (let i = 1; i <= objects.length; i++) {
+        pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+      }
+
+      pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+      return new TextEncoder().encode(pdf);
+    }
+
+    document.getElementById("pdfReportBtn").addEventListener("click", createWeeklyPdfReport);
 
     function parseCsv(text) {
       text = text.replace(/^\uFEFF/, "");
